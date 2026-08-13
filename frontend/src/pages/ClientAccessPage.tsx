@@ -8,10 +8,12 @@ import {
   listUsers,
   revokeClientAccess,
   shareClientAccess,
+  toUserMessage,
 } from "../lib/api";
 import { fromBase64, sealForPublicKey, toBase64, unsealWithKeypair } from "../lib/crypto";
 import { useVaultStore } from "../store/vaultStore";
-import { ErrorText, PrimaryButton } from "../components/form";
+import { ErrorText, FormSelect, PrimaryButton } from "../components/form";
+import ConfirmDialog from "../components/ConfirmDialog";
 
 export default function ClientAccessPage() {
   const { clientId } = useParams<{ clientId: string }>();
@@ -25,6 +27,7 @@ export default function ClientAccessPage() {
   const [selectedUserId, setSelectedUserId] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [sharing, setSharing] = useState(false);
+  const [revokeTarget, setRevokeTarget] = useState<AccessGrantResponse | null>(null);
 
   async function refresh() {
     if (!clientId) return;
@@ -33,7 +36,7 @@ export default function ClientAccessPage() {
   }
 
   useEffect(() => {
-    refresh().catch((err) => setError(err instanceof Error ? err.message : "Could not load access list"));
+    refresh().catch((err) => setError(toUserMessage(err, "Could not load access list")));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clientId]);
 
@@ -63,20 +66,22 @@ export default function ClientAccessPage() {
       setSelectedUserId("");
       await refresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not share access");
+      setError(toUserMessage(err, "Could not share access"));
     } finally {
       setSharing(false);
     }
   }
 
-  async function handleRevoke(userId: string) {
-    if (!clientId) return;
+  async function handleConfirmRevoke() {
+    if (!clientId || !revokeTarget) return;
     setError(null);
     try {
-      await revokeClientAccess(clientId, userId);
+      await revokeClientAccess(clientId, revokeTarget.user_id);
+      setRevokeTarget(null);
       await refresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not revoke access");
+      setError(toUserMessage(err, "Could not revoke access"));
+      setRevokeTarget(null);
     }
   }
 
@@ -86,23 +91,23 @@ export default function ClientAccessPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       <header className="border-b border-gray-200 bg-white px-6 py-4">
-        <div className="mx-auto flex max-w-2xl items-center gap-2">
-          <Link to={`/clients/${clientId}`} className="text-sm text-gray-500 hover:text-gray-700">
+        <div className="mx-auto flex max-w-3xl flex-wrap items-center gap-2">
+          <Link to={`/clients/${clientId}`} className="shrink-0 text-sm text-gray-500 hover:text-gray-700">
             &larr; Back
           </Link>
           <span className="ml-2 text-base font-medium text-gray-900">Access</span>
         </div>
       </header>
-      <main className="mx-auto max-w-2xl px-6 py-8">
+      <main className="mx-auto max-w-3xl px-6 py-8">
         <ErrorText>{error}</ErrorText>
 
         <div className="mb-6 rounded border border-gray-200 bg-white p-4">
           <h2 className="mb-3 text-sm font-medium text-gray-700">Share with a colleague</h2>
           <div className="flex gap-2">
-            <select
+            <FormSelect
               value={selectedUserId}
               onChange={(e) => setSelectedUserId(e.target.value)}
-              className="flex-1 rounded border border-gray-300 px-2 py-1.5 text-sm"
+              className="flex-1"
             >
               <option value="">Select a person...</option>
               {shareableUsers.map((u) => (
@@ -110,7 +115,7 @@ export default function ClientAccessPage() {
                   {u.email}
                 </option>
               ))}
-            </select>
+            </FormSelect>
             <div className="w-32">
               <PrimaryButton type="button" disabled={!selectedUserId || sharing} onClick={handleShare}>
                 {sharing ? "Sharing..." : "Share"}
@@ -139,7 +144,7 @@ export default function ClientAccessPage() {
                   </span>
                   {!isSuperadmin && (
                     <button
-                      onClick={() => handleRevoke(grant.user_id)}
+                      onClick={() => setRevokeTarget(grant)}
                       className="text-xs text-danger-600 hover:underline"
                     >
                       Revoke
@@ -149,6 +154,16 @@ export default function ClientAccessPage() {
               );
             })}
           </ul>
+        )}
+
+        {revokeTarget && (
+          <ConfirmDialog
+            title="Revoke access?"
+            message={`${revokeTarget.email} will immediately lose the ability to decrypt anything in this client. This does not undo anything they've already copied.`}
+            confirmLabel="Revoke access"
+            onConfirm={handleConfirmRevoke}
+            onCancel={() => setRevokeTarget(null)}
+          />
         )}
       </main>
     </div>

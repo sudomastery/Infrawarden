@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { createResource, getClient, listResources, ResourceResponse, ResourceType } from "../lib/api";
+import { createResource, getClient, listResources, ResourceResponse, ResourceType, toUserMessage } from "../lib/api";
 import { decryptJson, encryptJson, fromBase64, toBase64, unsealWithKeypair } from "../lib/crypto";
 import { RESOURCE_TYPE_LABELS, ResourceFieldValues } from "../lib/resourceTypes";
 import { useVaultStore } from "../store/vaultStore";
 import ResourceTypeForm from "../components/ResourceTypeForm";
-import { ErrorText } from "../components/form";
+import { ErrorText, FormSelect, InlineButton } from "../components/form";
 
 interface DecryptedResource {
   resource: ResourceResponse;
@@ -59,7 +59,7 @@ export default function ClientDetailPage() {
         );
         if (!cancelled) setResources(decrypted);
       } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : "Could not load client");
+        if (!cancelled) setError(toUserMessage(err, "Could not load client"));
       }
     }
 
@@ -83,18 +83,23 @@ export default function ClientDetailPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       <header className="border-b border-gray-200 bg-white px-6 py-4">
-        <div className="mx-auto flex max-w-3xl items-center gap-2">
-          <Link to="/clients" className="text-sm text-gray-500 hover:text-gray-700">
+        <div className="mx-auto flex max-w-3xl flex-wrap items-center gap-x-2 gap-y-1">
+          <Link to="/clients" className="shrink-0 text-sm text-gray-500 hover:text-gray-700">
             &larr; Clients
           </Link>
-          <span className="ml-2 text-base font-medium text-gray-900">{clientName ?? "Loading..."}</span>
-          <Link to={`/clients/${clientId}/timeline`} className="ml-auto text-sm text-primary-600 hover:underline">
+          <span className="ml-2 min-w-0 truncate text-base font-medium text-gray-900">
+            {clientName ?? "Loading..."}
+          </span>
+          <Link
+            to={`/clients/${clientId}/timeline`}
+            className="ml-auto shrink-0 text-sm text-primary-600 hover:underline"
+          >
             Timeline
           </Link>
-          <Link to={`/clients/${clientId}/tokens`} className="text-sm text-primary-600 hover:underline">
+          <Link to={`/clients/${clientId}/tokens`} className="shrink-0 text-sm text-primary-600 hover:underline">
             API Tokens
           </Link>
-          <Link to={`/clients/${clientId}/access`} className="text-sm text-primary-600 hover:underline">
+          <Link to={`/clients/${clientId}/access`} className="shrink-0 text-sm text-primary-600 hover:underline">
             Access
           </Link>
         </div>
@@ -105,23 +110,14 @@ export default function ClientDetailPage() {
         <div className="mb-4 flex items-center justify-between">
           <h2 className="text-sm font-medium text-gray-700">Resources</h2>
           <div className="flex items-center gap-2">
-            <select
-              value={newResourceType}
-              onChange={(e) => setNewResourceType(e.target.value as ResourceType)}
-              className="rounded border border-gray-300 px-2 py-1.5 text-sm"
-            >
+            <FormSelect value={newResourceType} onChange={(e) => setNewResourceType(e.target.value as ResourceType)}>
               {Object.entries(RESOURCE_TYPE_LABELS).map(([value, label]) => (
                 <option key={value} value={value}>
                   {label}
                 </option>
               ))}
-            </select>
-            <button
-              onClick={() => setShowNewResource((v) => !v)}
-              className="rounded bg-primary-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-primary-700"
-            >
-              New resource
-            </button>
+            </FormSelect>
+            <InlineButton onClick={() => setShowNewResource((v) => !v)}>New resource</InlineButton>
           </div>
         </div>
 

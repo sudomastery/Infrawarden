@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { UserPublicResponse, getClient, listUsers, promoteUser, shareClientAccess } from "../lib/api";
+import { UserPublicResponse, getClient, listUsers, promoteUser, shareClientAccess, toUserMessage } from "../lib/api";
 import { fromBase64, sealForPublicKey, toBase64, unsealWithKeypair } from "../lib/crypto";
 import { useVaultStore } from "../store/vaultStore";
 import { ErrorText } from "../components/form";
@@ -18,7 +18,7 @@ export default function AdminUsersPage() {
   }
 
   useEffect(() => {
-    refresh().catch((err) => setError(err instanceof Error ? err.message : "Could not load users"));
+    refresh().catch((err) => setError(toUserMessage(err, "Could not load users")));
   }, []);
 
   async function handlePromote(user: UserPublicResponse) {
@@ -46,7 +46,7 @@ export default function AdminUsersPage() {
       setStatusByUserId((s) => ({ ...s, [user.id]: `Promoted, reconciled ${total} client(s)` }));
       await refresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not promote user");
+      setError(toUserMessage(err, "Could not promote user"));
     } finally {
       setBusyUserId(null);
     }
@@ -55,14 +55,14 @@ export default function AdminUsersPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       <header className="border-b border-gray-200 bg-white px-6 py-4">
-        <div className="mx-auto flex max-w-2xl items-center gap-2">
-          <Link to="/clients" className="text-sm text-gray-500 hover:text-gray-700">
+        <div className="mx-auto flex max-w-3xl flex-wrap items-center gap-2">
+          <Link to="/clients" className="shrink-0 text-sm text-gray-500 hover:text-gray-700">
             &larr; Clients
           </Link>
           <span className="ml-2 text-base font-medium text-gray-900">Users</span>
         </div>
       </header>
-      <main className="mx-auto max-w-2xl px-6 py-8">
+      <main className="mx-auto max-w-3xl px-6 py-8">
         <ErrorText>{error}</ErrorText>
         {users === null ? (
           <p className="text-sm text-gray-400">Loading...</p>

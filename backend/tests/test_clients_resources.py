@@ -327,3 +327,29 @@ async def test_personal_hide_vs_owner_delete_and_superadmin_recovery(client, db_
     owner_list3 = await client.get(f"/api/v1/clients/{client_id}/resources", headers=_auth(owner["access_token"]))
     assert len(owner_list3.json()) == 1
     assert owner_list3.json()[0]["id"] == resource_id
+
+
+async def test_update_client_name_and_description(client):
+    admin_token = await _login(client, ADMIN_EMAIL, ADMIN_PASSWORD)
+    admin_id = (await client.get("/api/v1/users/me", headers=_auth(admin_token))).json()["id"]
+    owner = await _signup(client, "owner6@infrawarden-test.example.com")
+    client_id = await _create_client(client, owner["access_token"], owner["user_id"], admin_id)
+
+    patch_resp = await client.patch(
+        f"/api/v1/clients/{client_id}",
+        json={"name": "Renamed Co", "description": "updated description"},
+        headers=_auth(owner["access_token"]),
+    )
+    assert patch_resp.status_code == 200, patch_resp.text
+    assert patch_resp.json()["name"] == "Renamed Co"
+    assert patch_resp.json()["description"] == "updated description"
+
+    fetched = await client.get(f"/api/v1/clients/{client_id}", headers=_auth(owner["access_token"]))
+    assert fetched.json()["name"] == "Renamed Co"
+
+    # A stranger with no grant can't rename it.
+    stranger = await _signup(client, "stranger6@infrawarden-test.example.com")
+    denied = await client.patch(
+        f"/api/v1/clients/{client_id}", json={"name": "Hijacked"}, headers=_auth(stranger["access_token"])
+    )
+    assert denied.status_code == 404

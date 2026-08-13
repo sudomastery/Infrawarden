@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { createTimelineEntry, getClient, listTimelineEntries, TimelineEntryResponse } from "../lib/api";
+import { createTimelineEntry, getClient, listTimelineEntries, TimelineEntryResponse, toUserMessage } from "../lib/api";
 import { decryptJson, encryptJson, fromBase64, toBase64, unsealWithKeypair } from "../lib/crypto";
 import { useVaultStore } from "../store/vaultStore";
 import { ErrorText, FormInput, PrimaryButton } from "../components/form";
@@ -48,7 +48,7 @@ export default function ClientTimelinePage() {
   }
 
   useEffect(() => {
-    refresh().catch((err) => setError(err instanceof Error ? err.message : "Could not load timeline"));
+    refresh().catch((err) => setError(toUserMessage(err, "Could not load timeline")));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clientId]);
 
@@ -64,7 +64,7 @@ export default function ClientTimelinePage() {
       setNewText("");
       await refresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not add entry");
+      setError(toUserMessage(err, "Could not add entry"));
     } finally {
       setSubmitting(false);
     }
@@ -76,14 +76,14 @@ export default function ClientTimelinePage() {
   return (
     <div className="min-h-screen bg-gray-50">
       <header className="border-b border-gray-200 bg-white px-6 py-4">
-        <div className="mx-auto flex max-w-2xl items-center gap-2">
-          <Link to={`/clients/${clientId}`} className="text-sm text-gray-500 hover:text-gray-700">
+        <div className="mx-auto flex max-w-3xl flex-wrap items-center gap-2">
+          <Link to={`/clients/${clientId}`} className="shrink-0 text-sm text-gray-500 hover:text-gray-700">
             &larr; Back
           </Link>
           <span className="ml-2 text-base font-medium text-gray-900">Activity Timeline</span>
         </div>
       </header>
-      <main className="mx-auto max-w-2xl px-6 py-8">
+      <main className="mx-auto max-w-3xl px-6 py-8">
         <ErrorText>{error}</ErrorText>
 
         <section className="mb-8">

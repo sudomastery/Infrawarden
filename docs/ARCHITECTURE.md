@@ -32,8 +32,14 @@ implementations.
 5. The browser sends `{public_key, wrapped_private_key, wrapped_private_key_nonce, kdf_salt,
    kdf_ops_limit, kdf_mem_limit, auth_hash}`. The server rehashes `auth_hash` with argon2-cffi before
    storing it, but never sees the master password, `stretch_key`, or the private key.
-6. Login re-derives `stretch_key`/`auth_hash` client-side; the server verifies `auth_hash` and issues a
-   JWT session. Vault unlock is a separate client-side step: fetch `wrapped_private_key`/`kdf_*`, unwrap
+6. Login re-derives `stretch_key`/`auth_hash` client-side - but a fresh browser session has no way to
+   know a user's `kdf_salt`/`kdf_ops_limit`/`kdf_mem_limit` yet, so it first calls `POST
+   /api/v1/auth/prelogin` with just the email to fetch them. Unknown emails get a deterministic fake
+   salt with platform-default params instead of a 404, so this can't be used to enumerate accounts
+   (the same pattern Bitwarden's own prelogin endpoint uses). The server verifies `auth_hash` and issues
+   a JWT session (access token short-lived, silently refreshed via `POST /api/v1/auth/refresh` on a 401
+   using the longer-lived refresh token - both persisted client-side, since neither is vault key
+   material). Vault unlock is a separate client-side step: fetch `wrapped_private_key`/`kdf_*`, unwrap
    locally with `stretch_key`. The unwrapped private key lives only in an in-memory store - never
    `localStorage` - and is cleared on logout or tab close.
 7. Unwrapping a client vault: `crypto_box_seal_open(wrapped_data_key, my_keypair)` using the per-user
@@ -151,11 +157,12 @@ model doesn't give this for free, so it's made explicit:
 - **Non-owner grant holder deletes a resource**: purely cosmetic and personal - sets
   `resource_user_state.hidden_at` for that one user. The resource, its full version history, and every
   other grant holder's access are completely untouched.
-- **Owner deletes a resource** (owner = whoever created that specific resource, not necessarily
-  whoever created the client): `resources.status` flips to `pending_delete`, `deleted_by_user_id`/
-  `deleted_at` are set. The resource disappears from every grant holder's active view and from the
-  agent-facing doc immediately. It is never hard-deleted - `resource_versions`/`resource_notes` rows
-  are untouched.
+- **Owner or superadmin deletes a resource** (owner = whoever created that specific resource, not
+  necessarily whoever created the client - a superadmin has the same authority regardless of who
+  created it, consistent with already having universal decrypt access): `resources.status` flips to
+  `pending_delete`, `deleted_by_user_id`/`deleted_at` are set. The resource disappears from every grant
+  holder's active view and from the agent-facing doc immediately. It is never hard-deleted -
+  `resource_versions`/`resource_notes` rows are untouched.
 - **Superadmin recovery**: superadmins have a Deleted Items dashboard listing every `pending_delete`
   resource across every client (decryptable, since they hold every client's data key). They can restore
   a resource (`status` back to `active`) or leave it archived. This is the actual mechanism behind "no

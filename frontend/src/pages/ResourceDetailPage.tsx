@@ -12,15 +12,17 @@ import {
   listResourceVersions,
   listUsers,
   ResourceResponse,
+  toUserMessage,
   unhideResource,
 } from "../lib/api";
 import { decryptJson, encryptJson, fromBase64, toBase64 } from "../lib/crypto";
 import { diffResourceValues } from "../lib/diff";
-import { RESOURCE_TYPE_LABELS, ResourceFieldValues } from "../lib/resourceTypes";
+import { fieldLabel, isSecretField, RESOURCE_TYPE_LABELS, ResourceFieldValues } from "../lib/resourceTypes";
 import { useVaultStore } from "../store/vaultStore";
 import ResourceTypeForm from "../components/ResourceTypeForm";
 import ResourceChangeBanner from "../components/ResourceChangeBanner";
 import NoteTimeline, { DecryptedNote } from "../components/NoteTimeline";
+import ConfirmDialog from "../components/ConfirmDialog";
 import { ErrorText } from "../components/form";
 
 export default function ResourceDetailPage() {
@@ -38,6 +40,8 @@ export default function ResourceDetailPage() {
   const [notes, setNotes] = useState<DecryptedNote[] | null>(null);
   const [editing, setEditing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [revealedFields, setRevealedFields] = useState<Set<string>>(new Set());
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   async function load() {
     if (!resourceId || !dataKey) return;
@@ -84,9 +88,18 @@ export default function ResourceDetailPage() {
   }
 
   useEffect(() => {
-    load().catch((err) => setError(err instanceof Error ? err.message : "Could not load resource"));
+    load().catch((err) => setError(toUserMessage(err, "Could not load resource")));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resourceId, dataKey]);
+
+  function toggleReveal(key: string) {
+    setRevealedFields((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
 
   async function handleAccept() {
     if (!resourceId) return;
@@ -115,15 +128,21 @@ export default function ResourceDetailPage() {
     await load();
   }
 
-  async function handleDelete() {
+  async function handleConfirmDelete() {
     if (!resourceId || !clientId) return;
+    setError(null);
     try {
       await deleteResource(resourceId);
       navigate(`/clients/${clientId}`);
     } catch {
       // not the owner/admin - fall back to hiding it from just this view
-      await hideResource(resourceId);
-      navigate(`/clients/${clientId}`);
+      try {
+        await hideResource(resourceId);
+        navigate(`/clients/${clientId}`);
+      } catch (err) {
+        setError(toUserMessage(err, "Could not remove this resource"));
+        setConfirmingDelete(false);
+      }
     }
   }
 
@@ -135,7 +154,7 @@ export default function ResourceDetailPage() {
 
   if (!resource || !values) {
     return (
-      <div className="mx-auto max-w-2xl px-6 py-8">
+      <div className="mx-auto max-w-3xl px-6 py-8">
         <ErrorText>{error}</ErrorText>
         <p className="text-sm text-gray-400">Loading...</p>
       </div>
@@ -148,17 +167,17 @@ export default function ResourceDetailPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       <header className="border-b border-gray-200 bg-white px-6 py-4">
-        <div className="mx-auto flex max-w-2xl items-center gap-2">
-          <Link to={`/clients/${clientId}`} className="text-sm text-gray-500 hover:text-gray-700">
+        <div className="mx-auto flex max-w-3xl flex-wrap items-center gap-2">
+          <Link to={`/clients/${clientId}`} className="shrink-0 text-sm text-gray-500 hover:text-gray-700">
             &larr; Back
           </Link>
-          <span className="ml-2 rounded bg-gray-100 px-1.5 py-0.5 text-xs font-medium text-gray-600">
+          <span className="shrink-0 rounded bg-gray-100 px-1.5 py-0.5 text-xs font-medium text-gray-600">
             {RESOURCE_TYPE_LABELS[resource.resource_type]}
           </span>
-          <span className="text-base font-medium text-gray-900">{values.name || "(unnamed)"}</span>
+          <span className="min-w-0 truncate text-base font-medium text-gray-900">{values.name || "(unnamed)"}</span>
         </div>
       </header>
-      <main className="mx-auto max-w-2xl px-6 py-8">
+      <main className="mx-auto max-w-3xl px-6 py-8">
         <ErrorText>{error}</ErrorText>
 
         {resource.hidden && (
@@ -182,17 +201,27 @@ export default function ResourceDetailPage() {
         <div className="mb-6 rounded border border-gray-200 bg-white p-4">
           <div className="mb-3 flex items-center justify-between">
             <h2 className="text-sm font-medium text-gray-700">Fields</h2>
-            <div className="flex gap-2">
+            <div className="flex items-center gap-3">
               <button onClick={() => setEditing((v) => !v)} className="text-xs text-primary-600 hover:underline">
                 {editing ? "Cancel" : "Edit"}
               </button>
-              <button
-                onClick={handleDelete}
-                className="text-xs text-danger-600 hover:underline"
-                title={canHardDelete ? "Delete for everyone" : "Remove from my view"}
-              >
-                {canHardDelete ? "Delete" : "Remove from my view"}
-              </button>
+              {canHardDelete ? (
+                <button
+                  onClick={() => setConfirmingDelete(true)}
+                  className="rounded border border-danger-300 px-2 py-1 text-xs font-medium text-danger-700 hover:bg-danger-50"
+                  title="Deletes this for everyone with access - only recoverable by a superadmin"
+                >
+                  Delete
+                </button>
+              ) : (
+                <button
+                  onClick={() => setConfirmingDelete(true)}
+                  className="text-xs text-gray-500 hover:underline"
+                  title="Only removes it from your own view - everyone else keeps their access"
+                >
+                  Remove from my view
+                </button>
+              )}
             </div>
           </div>
           {editing ? (
@@ -204,17 +233,42 @@ export default function ResourceDetailPage() {
             />
           ) : (
             <dl className="space-y-1 text-sm">
-              {Object.entries(values).map(([key, value]) =>
-                key === "management_interfaces" ? null : (
-                  <div key={key} className="flex gap-2">
-                    <dt className="w-32 shrink-0 text-gray-500">{key}</dt>
-                    <dd className="text-gray-900">{String(value)}</dd>
+              {Object.entries(values).map(([key, value]) => {
+                if (key === "management_interfaces") return null;
+                const secret = isSecretField(resource.resource_type, key);
+                const revealed = revealedFields.has(key);
+                return (
+                  <div key={key} className="flex items-center gap-2">
+                    <dt className="w-40 shrink-0 text-gray-500">{fieldLabel(resource.resource_type, key)}</dt>
+                    <dd className="text-gray-900">{secret && !revealed ? "••••••••" : String(value)}</dd>
+                    {secret && (
+                      <button
+                        onClick={() => toggleReveal(key)}
+                        className="text-xs text-primary-600 hover:underline"
+                      >
+                        {revealed ? "Hide" : "Reveal"}
+                      </button>
+                    )}
                   </div>
-                ),
-              )}
+                );
+              })}
             </dl>
           )}
         </div>
+
+        {confirmingDelete && (
+          <ConfirmDialog
+            title={canHardDelete ? "Delete this resource?" : "Remove from your view?"}
+            message={
+              canHardDelete
+                ? "This deletes it for everyone with access to this client. It's never permanently destroyed - a superadmin can still recover it from the Deleted Items archive - but nobody else will see it until then."
+                : "This only affects your own view. Everyone else with access to this client keeps seeing it normally, and you can unhide it again later."
+            }
+            confirmLabel={canHardDelete ? "Delete" : "Remove from my view"}
+            onConfirm={handleConfirmDelete}
+            onCancel={() => setConfirmingDelete(false)}
+          />
+        )}
 
         <div>
           <h2 className="mb-3 text-sm font-medium text-gray-700">Notes / history</h2>

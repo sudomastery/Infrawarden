@@ -18,6 +18,11 @@ class ClientCreate(BaseModel):
     grants: list[ClientGrantIn]
 
 
+class ClientUpdate(BaseModel):
+    name: str | None = None
+    description: str | None = None
+
+
 class ClientOut(BaseModel):
     id: uuid.UUID
     name: str

@@ -10,13 +10,50 @@ class ApiError extends Error {
   }
 }
 
-async function request<T>(path: string, init: RequestInit = {}, auth = false): Promise<T> {
+// Access tokens are short-lived (15 min default) - without this, a session would
+// break with a confusing raw 401 partway through normal use. On a 401, try once
+// to refresh silently and retry the original request; if that also fails, the
+// session is genuinely gone and the caller's error should surface (routes then
+// redirect to /login via VaultUnlockGate once accessToken is cleared).
+let refreshInFlight: Promise<string | null> | null = null;
+
+async function refreshAccessToken(): Promise<string | null> {
+  const refreshToken = useVaultStore.getState().refreshToken;
+  if (!refreshToken) return null;
+  try {
+    const response = await fetch(`${API_BASE_URL}/api/v1/auth/refresh`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ refresh_token: refreshToken }),
+    });
+    if (!response.ok) return null;
+    const body = await response.json();
+    useVaultStore.getState().setSession(body.access_token, refreshToken);
+    return body.access_token as string;
+  } catch {
+    return null;
+  }
+}
+
+async function request<T>(path: string, init: RequestInit = {}, auth = false, _isRetry = false): Promise<T> {
   const headers: Record<string, string> = { "Content-Type": "application/json", ...(init.headers as Record<string, string>) };
   if (auth) {
     const token = useVaultStore.getState().accessToken;
     if (token) headers["Authorization"] = `Bearer ${token}`;
   }
   const response = await fetch(`${API_BASE_URL}${path}`, { ...init, headers });
+
+  if (response.status === 401 && auth && !_isRetry) {
+    refreshInFlight ??= refreshAccessToken().finally(() => {
+      refreshInFlight = null;
+    });
+    const newAccessToken = await refreshInFlight;
+    if (newAccessToken) {
+      return request<T>(path, init, auth, true);
+    }
+    useVaultStore.getState().clearSession();
+  }
+
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
     throw new ApiError(response.status, body.detail ?? `Request failed: ${response.status}`);
@@ -90,6 +127,10 @@ export async function getMe(): Promise<UserMeResponse> {
   return request("/api/v1/users/me", {}, true);
 }
 
+export async function logout(): Promise<void> {
+  await request("/api/v1/auth/logout", { method: "POST" }, true);
+}
+
 export interface UserPublicResponse {
   id: string;
   email: string;
@@ -130,6 +171,13 @@ export async function listClients(): Promise<ClientResponse[]> {
 
 export async function getClient(clientId: string): Promise<ClientResponse> {
   return request(`/api/v1/clients/${clientId}`, {}, true);
+}
+
+export async function updateClient(
+  clientId: string,
+  fields: { name?: string; description?: string },
+): Promise<ClientResponse> {
+  return request(`/api/v1/clients/${clientId}`, { method: "PATCH", body: JSON.stringify(fields) }, true);
 }
 
 export type ResourceType = "host" | "vm" | "storage" | "network_device";
@@ -330,6 +378,15 @@ export async function createTimelineEntry(
 
 export async function listTimelineEntries(clientId: string): Promise<TimelineEntryResponse[]> {
   return request(`/api/v1/clients/${clientId}/timeline`, {}, true);
+}
+
+/** Narrows a catch-block error to the app's own written copy when it's an
+ * ApiError (server-provided detail message), and falls back to a generic,
+ * on-brand message otherwise - so a network failure never surfaces a raw
+ * browser/runtime string like "Failed to fetch" through the UI. */
+export function toUserMessage(err: unknown, fallback = "Something went wrong - please try again"): string {
+  if (err instanceof ApiError) return err.message;
+  return fallback;
 }
 
 export { ApiError };

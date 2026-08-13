@@ -64,3 +64,16 @@ export const RESOURCE_TYPE_FIELDS: Record<ResourceType, FieldSpec[]> = {
 export type ResourceFieldValues = Record<string, string> & {
   management_interfaces?: ManagementInterface[];
 };
+
+/** Looks up the human label for a field key within a resource type's template,
+ * falling back to the raw key for anything not in the template (e.g. future
+ * fields). Used so the read-only view and the edit form always agree - the edit
+ * form already showed "IP address" via FieldSpec.label, the read view was
+ * printing the raw "ip" key instead. */
+export function fieldLabel(resourceType: ResourceType, key: string): string {
+  return RESOURCE_TYPE_FIELDS[resourceType].find((f) => f.key === key)?.label ?? key;
+}
+
+export function isSecretField(resourceType: ResourceType, key: string): boolean {
+  return RESOURCE_TYPE_FIELDS[resourceType].find((f) => f.key === key)?.kind === "secret";
+}

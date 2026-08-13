@@ -16,3 +16,10 @@ body {
   background-color: var(--bg-page);
   color: var(--text-body);
 }
+
+/* Native checkboxes/radios otherwise render with the browser's default (usually
+   blue) accent - never blue is a deliberate choice throughout this app. */
+input[type="checkbox"],
+input[type="radio"] {
+  accent-color: theme(colors.primary.600);
+}

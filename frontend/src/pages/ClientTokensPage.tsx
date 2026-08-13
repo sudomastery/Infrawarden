@@ -9,6 +9,7 @@ import {
   listResources,
   listTokens,
   revokeToken,
+  toUserMessage,
 } from "../lib/api";
 import {
   aeadEncrypt,
@@ -22,7 +23,8 @@ import {
 } from "../lib/crypto";
 import { RESOURCE_TYPE_LABELS } from "../lib/resourceTypes";
 import { useVaultStore } from "../store/vaultStore";
-import { ErrorText, PrimaryButton } from "../components/form";
+import { ErrorText, FormLabel, FormSelect, PrimaryButton } from "../components/form";
+import ConfirmDialog from "../components/ConfirmDialog";
 
 const TTL_OPTIONS = [
   { label: "30 minutes", seconds: 1800 },
@@ -45,6 +47,7 @@ export default function ClientTokensPage() {
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [revealedBearer, setRevealedBearer] = useState<string | null>(null);
+  const [revokeTarget, setRevokeTarget] = useState<TokenResponse | null>(null);
 
   async function refresh() {
     if (!clientId) return;
@@ -53,7 +56,7 @@ export default function ClientTokensPage() {
   }
 
   useEffect(() => {
-    refresh().catch((err) => setError(err instanceof Error ? err.message : "Could not load tokens"));
+    refresh().catch((err) => setError(toUserMessage(err, "Could not load tokens")));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [clientId]);
 
@@ -97,16 +100,23 @@ export default function ClientTokensPage() {
       setSelectedResourceIds([]);
       await refresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not create token");
+      setError(toUserMessage(err, "Could not create token"));
     } finally {
       setCreating(false);
     }
   }
 
-  async function handleRevoke(tokenId: string) {
-    if (!clientId) return;
-    await revokeToken(clientId, tokenId);
-    await refresh();
+  async function handleConfirmRevoke() {
+    if (!clientId || !revokeTarget) return;
+    setError(null);
+    try {
+      await revokeToken(clientId, revokeTarget.id);
+      setRevokeTarget(null);
+      await refresh();
+    } catch (err) {
+      setError(toUserMessage(err, "Could not revoke token"));
+      setRevokeTarget(null);
+    }
   }
 
   function resourceLabel(resource: ResourceResponse): string {
@@ -116,14 +126,14 @@ export default function ClientTokensPage() {
   return (
     <div className="min-h-screen bg-gray-50">
       <header className="border-b border-gray-200 bg-white px-6 py-4">
-        <div className="mx-auto flex max-w-2xl items-center gap-2">
-          <Link to={`/clients/${clientId}`} className="text-sm text-gray-500 hover:text-gray-700">
+        <div className="mx-auto flex max-w-3xl flex-wrap items-center gap-2">
+          <Link to={`/clients/${clientId}`} className="shrink-0 text-sm text-gray-500 hover:text-gray-700">
             &larr; Back
           </Link>
           <span className="ml-2 text-base font-medium text-gray-900">API Tokens</span>
         </div>
       </header>
-      <main className="mx-auto max-w-2xl px-6 py-8">
+      <main className="mx-auto max-w-3xl px-6 py-8">
         <ErrorText>{error}</ErrorText>
 
         {revealedBearer && (
@@ -144,28 +154,30 @@ export default function ClientTokensPage() {
         <div className="mb-6 rounded border border-gray-200 bg-white p-4">
           <h2 className="mb-3 text-sm font-medium text-gray-700">Create a token</h2>
 
-          <label className="mb-1 block text-xs font-medium text-gray-600">Expires after</label>
-          <select
+          <FormLabel htmlFor="ttl">Expires after</FormLabel>
+          <FormSelect
+            id="ttl"
             value={ttlSeconds}
             onChange={(e) => setTtlSeconds(Number(e.target.value))}
-            className="mb-3 w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
+            className="mb-3 w-full"
           >
             {TTL_OPTIONS.map((opt) => (
               <option key={opt.seconds} value={opt.seconds}>
                 {opt.label}
               </option>
             ))}
-          </select>
+          </FormSelect>
 
-          <label className="mb-1 block text-xs font-medium text-gray-600">Scope</label>
-          <select
+          <FormLabel htmlFor="scope">Scope</FormLabel>
+          <FormSelect
+            id="scope"
             value={scopeType}
             onChange={(e) => setScopeType(e.target.value as TokenScopeType)}
-            className="mb-3 w-full rounded border border-gray-300 px-2 py-1.5 text-sm"
+            className="mb-3 w-full"
           >
             <option value="all_resources">Entire environment</option>
             <option value="selected_resources">Specific resources</option>
-          </select>
+          </FormSelect>
 
           {scopeType === "selected_resources" && (
             <div className="mb-3 max-h-40 overflow-y-auto rounded border border-gray-200 p-2">
@@ -217,7 +229,7 @@ export default function ClientTokensPage() {
                     </p>
                   </div>
                   {!isRevoked && !isExpired && (
-                    <button onClick={() => handleRevoke(t.id)} className="text-xs text-danger-600 hover:underline">
+                    <button onClick={() => setRevokeTarget(t)} className="text-xs text-danger-600 hover:underline">
                       Revoke
                     </button>
                   )}
@@ -225,6 +237,16 @@ export default function ClientTokensPage() {
               );
             })}
           </ul>
+        )}
+
+        {revokeTarget && (
+          <ConfirmDialog
+            title="Revoke this token?"
+            message="Any agent using this token will immediately lose access - the next request will fail, even mid-session."
+            confirmLabel="Revoke token"
+            onConfirm={handleConfirmRevoke}
+            onCancel={() => setRevokeTarget(null)}
+          />
         )}
       </main>
     </div>

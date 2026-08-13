@@ -13,7 +13,7 @@ from app.models.resource import Resource, ResourceStatus
 from app.models.resource_user_state import ResourceUserState
 from app.models.user import User, UserRole
 from app.schemas.access import AccessGrantIn, AccessGrantOut
-from app.schemas.client import ClientCreate, ClientDetail, ClientOut
+from app.schemas.client import ClientCreate, ClientDetail, ClientOut, ClientUpdate
 
 router = APIRouter(prefix="/clients", tags=["clients"])
 
@@ -98,6 +98,39 @@ async def get_client(
     client = await db.get(Client, client_id)
     if client is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Client not found")
+
+    return ClientDetail(
+        id=client.id,
+        name=client.name,
+        description=client.description,
+        created_by_user_id=client.created_by_user_id,
+        created_at=client.created_at,
+        updated_at=client.updated_at,
+        wrapped_data_key=b64encode(grant.wrapped_data_key),
+    )
+
+
+@router.patch("/{client_id}", response_model=ClientDetail)
+async def update_client(
+    client_id: uuid.UUID,
+    body: ClientUpdate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> ClientDetail:
+    """Only name/description - plaintext metadata the server already holds, no
+    encryption involved. Any current grant holder may rename/redescribe, matching
+    the same permission level already used for sharing."""
+    grant = await get_client_grant(client_id, current_user, db)
+    client = await db.get(Client, client_id)
+    if client is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Client not found")
+
+    if body.name is not None:
+        client.name = body.name
+    if body.description is not None:
+        client.description = body.description
+    await db.commit()
+    await db.refresh(client)
 
     return ClientDetail(
         id=client.id,
