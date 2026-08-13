@@ -1,0 +1,18 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg-page: theme(colors.gray.50);
+  --bg-surface: theme(colors.white);
+  --bg-surface-alt: theme(colors.gray.100);
+  --border-base: theme(colors.gray.200);
+  --text-heading: theme(colors.gray.900);
+  --text-body: theme(colors.gray.600);
+  --text-muted: theme(colors.gray.400);
+}
+
+body {
+  background-color: var(--bg-page);
+  color: var(--text-body);
+}

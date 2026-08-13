@@ -11,10 +11,16 @@ node_modules/
 dist/
 build/
 .vite/
+*.tsbuildinfo
+/frontend/vite.config.js
+/frontend/vite.config.d.ts
 
 .env
 .env.local
 *.local
+
+# Sample/reference infra dumps - may contain real-looking credentials, never commit
+.example
 
 .DS_Store
 *.log
