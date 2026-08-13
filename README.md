@@ -38,6 +38,11 @@ npm install
 npm run dev
 ```
 
+## Connecting Claude Code to a client's infra doc
+
+See `mcp-server/README.md` - create a scoped API token for a client in the web
+UI, then add `infrawarden-mcp` to Claude Code's MCP config with that token.
+
 ## Repo layout
 
 - `backend/` - FastAPI + SQLAlchemy + Alembic API
