@@ -120,6 +120,46 @@ See the plan file this was implemented from for the full data model and API surf
 `~/.claude/plans/i-want-to-build-mutable-hammock.md` on the machine this was built on (not part of this
 repo).
 
+## Superadmin access model
+
+The `admin` role is the platform's superadmin tier and needs **guaranteed** decrypt access to every
+client, including ones created before a given user became superadmin. The base per-user-grant crypto
+model doesn't give this for free, so it's made explicit:
+
+- **On every client creation**, the creator's browser wraps the new data key not just for itself but
+  for every *current* superadmin's public key too, in the same request. No extra step for the creator.
+- **On promoting a user to superadmin**, existing clients need a bulk reconciliation - the promotion
+  itself can't retroactively decrypt anything. The promoting superadmin (who already holds a wrapped
+  copy of every existing client's data key) must be online with an unlocked vault to run it: their
+  browser iterates every client, unwraps each data key, wraps a fresh copy for the newly-promoted
+  user's public key, and POSTs the new grants in bulk. This is explicitly **not instant** - it depends
+  on a superadmin session being available to perform it.
+- **Trust trade-off, stated plainly**: every superadmin account becomes a maximally high-value target -
+  a compromised one can decrypt everything on the platform, by design. This is a deliberate, narrower
+  version of a master-key capability: still per-account asymmetric keys (compromising one superadmin
+  doesn't hand over other users' private keys; revoking a superadmin is a normal grant-revoke, not a
+  platform-wide re-key), not a single shared server-held recovery key - but it's a real concentration of
+  risk worth being honest about. Superadmin accounts should get the strongest master-password guidance;
+  MFA on top of the master password is valuable future work, not designed here.
+
+## Deletion model: personal hide vs. owner delete vs. superadmin recovery
+
+"Delete" means different things depending on who does it, so credentials are never silently destroyed:
+
+- **Non-owner grant holder deletes a resource**: purely cosmetic and personal - sets
+  `resource_user_state.hidden_at` for that one user. The resource, its full version history, and every
+  other grant holder's access are completely untouched.
+- **Owner deletes a resource** (owner = whoever created that specific resource, not necessarily
+  whoever created the client): `resources.status` flips to `pending_delete`, `deleted_by_user_id`/
+  `deleted_at` are set. The resource disappears from every grant holder's active view and from the
+  agent-facing doc immediately. It is never hard-deleted - `resource_versions`/`resource_notes` rows
+  are untouched.
+- **Superadmin recovery**: superadmins have a Deleted Items dashboard listing every `pending_delete`
+  resource across every client (decryptable, since they hold every client's data key). They can restore
+  a resource (`status` back to `active`) or leave it archived. This is the actual mechanism behind "no
+  credentials are ever lost": deletion by a non-superadmin is never truly destructive, only a status
+  flip a superadmin can always undo.
+
 ## What's deliberately out of scope for the MVP
 
 Audit log UI, SSO, mobile app, automated key rotation, billing/multi-tenancy-as-product, RBAC beyond
