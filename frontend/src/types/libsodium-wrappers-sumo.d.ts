@@ -32,6 +32,7 @@ declare module "libsodium-wrappers-sumo" {
     ): Uint8Array;
 
     crypto_generichash(hashLength: number, message: Uint8Array, key?: Uint8Array | null): Uint8Array;
+    crypto_hash_sha256(message: Uint8Array): Uint8Array;
 
     crypto_aead_xchacha20poly1305_ietf_NPUBBYTES: number;
     crypto_aead_xchacha20poly1305_ietf_encrypt(

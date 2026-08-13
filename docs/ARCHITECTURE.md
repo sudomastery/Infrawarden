@@ -53,7 +53,9 @@ secret, at token-creation time, while the vault is unlocked in the browser** - n
 master key.
 
 **Token creation** (browser, data key already unwrapped in memory):
-1. Browser generates `token_secret` (32 random bytes, base62-encoded for display).
+1. Browser generates `token_secret` (32 random bytes, hex-encoded for display/transmission -
+   simpler than base62 across two languages with no custom encoder needed on either side,
+   verified byte-for-byte identical between libsodium-wrappers-sumo and PyNaCl).
 2. `token_wrap_key = crypto_generichash(message="infrawarden-token-wrap-v1" || token_id, key=token_secret)`.
 3. `wrapped_data_key = AEAD_encrypt(data_key, nonce, key=token_wrap_key)`.
 4. `token_hash = sha256(token_secret)`.

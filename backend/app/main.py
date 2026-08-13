@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
-from app.api.v1 import admin, auth, clients, invites, resources, users
+from app.api.v1 import admin, agent, auth, clients, invites, resources, tokens, users
 from app.core.config import settings
 from app.core.limiter import limiter
 
@@ -26,6 +26,8 @@ app.include_router(users.router, prefix="/api/v1")
 app.include_router(clients.router, prefix="/api/v1")
 app.include_router(resources.router, prefix="/api/v1")
 app.include_router(admin.router, prefix="/api/v1")
+app.include_router(tokens.router, prefix="/api/v1")
+app.include_router(agent.router, prefix="/api/v1")
 
 
 @app.get("/api/v1/health")

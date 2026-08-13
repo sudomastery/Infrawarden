@@ -135,6 +135,32 @@ export async function decryptJson<T>(ciphertext: Uint8Array, nonce: Uint8Array, 
   return JSON.parse(s.to_string(plaintext)) as T;
 }
 
+const TOKEN_WRAP_KEY_DOMAIN = "infrawarden-token-wrap-v1:";
+
+/** Must match backend app/core/crypto.py::derive_token_wrap_key exactly. */
+export async function deriveTokenWrapKey(tokenId: string, tokenSecret: Uint8Array): Promise<Uint8Array> {
+  const s = await ready();
+  const message = s.from_string(TOKEN_WRAP_KEY_DOMAIN + tokenId);
+  return s.crypto_generichash(32, message, tokenSecret);
+}
+
+export async function generateTokenSecret(): Promise<Uint8Array> {
+  const s = await ready();
+  return s.randombytes_buf(32);
+}
+
+export async function toHex(bytes: Uint8Array): Promise<string> {
+  const s = await ready();
+  return s.to_hex(bytes);
+}
+
+export async function sha256Hex(bytes: Uint8Array): Promise<string> {
+  const s = await ready();
+  // crypto_generichash defaults to BLAKE2b, not SHA-256 - use the dedicated
+  // SHA-256 binding so this matches the backend's hashlib.sha256 exactly.
+  return s.to_hex(s.crypto_hash_sha256(bytes));
+}
+
 export async function toBase64(bytes: Uint8Array): Promise<string> {
   const s = await ready();
   return s.to_base64(bytes, s.base64_variants.ORIGINAL);

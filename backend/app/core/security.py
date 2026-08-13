@@ -38,6 +38,12 @@ def dummy_kdf_salt_for_unknown_email(email: str) -> bytes:
     return hashlib.sha256(f"{settings.jwt_secret}:{email}".encode()).digest()[:16]
 
 
+def hash_token_secret(token_secret: bytes) -> str:
+    """Plain SHA-256, not a slow KDF - correct here because token_secret is 32
+    bytes of high-entropy randomness, not a guessable human password."""
+    return hashlib.sha256(token_secret).hexdigest()
+
+
 def generate_invite_token() -> str:
     return secrets.token_urlsafe(32)
 

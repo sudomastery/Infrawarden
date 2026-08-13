@@ -5,6 +5,7 @@ import InviteAcceptPage from "./pages/InviteAcceptPage";
 import ClientsDashboardPage from "./pages/ClientsDashboardPage";
 import ClientDetailPage from "./pages/ClientDetailPage";
 import ClientAccessPage from "./pages/ClientAccessPage";
+import ClientTokensPage from "./pages/ClientTokensPage";
 import ResourceDetailPage from "./pages/ResourceDetailPage";
 import AdminUsersPage from "./pages/AdminUsersPage";
 import VaultUnlockGate from "./components/VaultUnlockGate";
@@ -37,6 +38,14 @@ export default function AppRoutes() {
         element={
           <VaultUnlockGate>
             <ClientAccessPage />
+          </VaultUnlockGate>
+        }
+      />
+      <Route
+        path="/clients/:clientId/tokens"
+        element={
+          <VaultUnlockGate>
+            <ClientTokensPage />
           </VaultUnlockGate>
         }
       />

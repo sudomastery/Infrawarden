@@ -265,4 +265,46 @@ export async function promoteUser(userId: string): Promise<PromoteResponse> {
   return request(`/api/v1/admin/users/${userId}/promote`, { method: "POST" }, true);
 }
 
+export type TokenScopeType = "all_resources" | "selected_resources";
+
+export interface TokenCreateBody {
+  token_id: string;
+  scope_type: TokenScopeType;
+  resource_ids: string[] | null;
+  ttl_seconds: number;
+  token_hash: string;
+  wrapped_data_key: string;
+  wrapped_data_key_nonce: string;
+}
+
+export interface TokenCreatedResponse {
+  id: string;
+  scope_type: TokenScopeType;
+  resource_ids: string[];
+  expires_at: string;
+}
+
+export async function createToken(clientId: string, body: TokenCreateBody): Promise<TokenCreatedResponse> {
+  return request(`/api/v1/clients/${clientId}/tokens`, { method: "POST", body: JSON.stringify(body) }, true);
+}
+
+export interface TokenResponse {
+  id: string;
+  created_by_user_id: string;
+  scope_type: TokenScopeType;
+  resource_ids: string[];
+  expires_at: string;
+  revoked_at: string | null;
+  last_used_at: string | null;
+  created_at: string;
+}
+
+export async function listTokens(clientId: string): Promise<TokenResponse[]> {
+  return request(`/api/v1/clients/${clientId}/tokens`, {}, true);
+}
+
+export async function revokeToken(clientId: string, tokenId: string): Promise<void> {
+  await request(`/api/v1/clients/${clientId}/tokens/${tokenId}`, { method: "DELETE" }, true);
+}
+
 export { ApiError };

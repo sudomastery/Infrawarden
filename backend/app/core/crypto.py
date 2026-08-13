@@ -67,6 +67,18 @@ def keyed_blake2b(message: bytes, key: bytes, digest_size: int = 32) -> bytes:
     return nacl.hash.blake2b(message, digest_size=digest_size, key=key, encoder=nacl.encoding.RawEncoder)
 
 
+TOKEN_WRAP_KEY_DOMAIN = b"infrawarden-token-wrap-v1:"
+
+
+def derive_token_wrap_key(token_id: str, token_secret: bytes) -> bytes:
+    """Derives the key that wraps a client's data key for a scoped API token.
+    token_id (the token's own UUID, as its string form) is folded in as domain
+    separation context so the same token_secret bytes can never accidentally
+    derive the same key for two different tokens. Must match the browser's
+    lib/crypto.ts derivation exactly - see docs/ARCHITECTURE.md."""
+    return keyed_blake2b(TOKEN_WRAP_KEY_DOMAIN + token_id.encode(), key=token_secret)
+
+
 def seal_for_public_key(plaintext: bytes, public_key: bytes) -> bytes:
     """crypto_box_seal - wraps `plaintext` (e.g. a client data key) so only the holder
     of the matching private key can open it. Self-contained ciphertext, no nonce needed."""

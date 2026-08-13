@@ -1,6 +1,8 @@
 # Models are added here as they're implemented; importing this module
 # registers every model's table on Base.metadata so Alembic autogenerate
 # and create_all can see them.
+from app.models.api_token import ApiToken, TokenScopeType
+from app.models.api_token_resource_scope import ApiTokenResourceScope
 from app.models.client import Client
 from app.models.client_access_grant import ClientAccessGrant
 from app.models.invite import Invite
@@ -23,4 +25,7 @@ __all__ = [
     "ResourceVersion",
     "ResourceUserState",
     "ResourceNote",
+    "ApiToken",
+    "TokenScopeType",
+    "ApiTokenResourceScope",
 ]
