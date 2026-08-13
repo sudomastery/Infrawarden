@@ -4,8 +4,11 @@ import UnlockPage from "./pages/UnlockPage";
 import InviteAcceptPage from "./pages/InviteAcceptPage";
 import ClientsDashboardPage from "./pages/ClientsDashboardPage";
 import ClientDetailPage from "./pages/ClientDetailPage";
+import ClientAccessPage from "./pages/ClientAccessPage";
 import ResourceDetailPage from "./pages/ResourceDetailPage";
+import AdminUsersPage from "./pages/AdminUsersPage";
 import VaultUnlockGate from "./components/VaultUnlockGate";
+import AdminRouteGate from "./components/AdminRouteGate";
 
 export default function AppRoutes() {
   return (
@@ -30,10 +33,28 @@ export default function AppRoutes() {
         }
       />
       <Route
+        path="/clients/:clientId/access"
+        element={
+          <VaultUnlockGate>
+            <ClientAccessPage />
+          </VaultUnlockGate>
+        }
+      />
+      <Route
         path="/clients/:clientId/resources/:resourceId"
         element={
           <VaultUnlockGate>
             <ResourceDetailPage />
+          </VaultUnlockGate>
+        }
+      />
+      <Route
+        path="/admin/users"
+        element={
+          <VaultUnlockGate>
+            <AdminRouteGate>
+              <AdminUsersPage />
+            </AdminRouteGate>
           </VaultUnlockGate>
         }
       />

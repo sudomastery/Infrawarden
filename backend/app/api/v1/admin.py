@@ -8,12 +8,36 @@ from app.core.deps import require_admin
 from app.core.encoding import b64encode
 from app.db.session import get_db
 from app.models.client import Client
+from app.models.client_access_grant import ClientAccessGrant
 from app.models.resource import Resource, ResourceStatus
 from app.models.resource_version import ResourceVersion
-from app.models.user import User
+from app.models.user import User, UserRole
+from app.schemas.access import PromoteResponse
 from app.schemas.resource import DeletedResourceOut, ResourceVersionOut
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+
+
+@router.post("/users/{user_id}/promote", response_model=PromoteResponse)
+async def promote_to_admin(
+    user_id: uuid.UUID, db: AsyncSession = Depends(get_db), _admin: User = Depends(require_admin)
+) -> PromoteResponse:
+    """Grants the superadmin role. This does NOT retroactively grant decrypt access
+    to existing clients - see docs/ARCHITECTURE.md 'Superadmin access model'. The
+    promoting superadmin's browser must still call POST /clients/{id}/access once
+    per client returned here (it already holds every client's data key, by the
+    same guarantee, so it can do this for all of them in one online session)."""
+    target = await db.get(User, user_id)
+    if target is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    target.role = UserRole.admin
+    await db.commit()
+
+    all_client_ids = set((await db.scalars(select(Client.id))).all())
+    granted_client_ids = set(
+        (await db.scalars(select(ClientAccessGrant.client_id).where(ClientAccessGrant.user_id == user_id))).all()
+    )
+    return PromoteResponse(user_id=user_id, clients_needing_reconciliation=list(all_client_ids - granted_client_ids))
 
 
 @router.get("/deleted-resources", response_model=list[DeletedResourceOut])

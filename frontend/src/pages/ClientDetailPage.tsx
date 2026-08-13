@@ -88,6 +88,9 @@ export default function ClientDetailPage() {
             &larr; Clients
           </Link>
           <span className="ml-2 text-base font-medium text-gray-900">{clientName ?? "Loading..."}</span>
+          <Link to={`/clients/${clientId}/access`} className="ml-auto text-sm text-primary-600 hover:underline">
+            Access
+          </Link>
         </div>
       </header>
       <main className="mx-auto max-w-3xl px-6 py-8">

@@ -229,4 +229,40 @@ export async function listResourceNotes(resourceId: string): Promise<ResourceNot
   return request(`/api/v1/resources/${resourceId}/notes`, {}, true);
 }
 
+export interface AccessGrantResponse {
+  user_id: string;
+  email: string;
+  granted_by_user_id: string;
+  granted_at: string;
+}
+
+export async function shareClientAccess(
+  clientId: string,
+  userId: string,
+  wrappedDataKey: string,
+): Promise<AccessGrantResponse> {
+  return request(
+    `/api/v1/clients/${clientId}/access`,
+    { method: "POST", body: JSON.stringify({ user_id: userId, wrapped_data_key: wrappedDataKey }) },
+    true,
+  );
+}
+
+export async function listClientAccess(clientId: string): Promise<AccessGrantResponse[]> {
+  return request(`/api/v1/clients/${clientId}/access`, {}, true);
+}
+
+export async function revokeClientAccess(clientId: string, userId: string): Promise<void> {
+  await request(`/api/v1/clients/${clientId}/access/${userId}`, { method: "DELETE" }, true);
+}
+
+export interface PromoteResponse {
+  user_id: string;
+  clients_needing_reconciliation: string[];
+}
+
+export async function promoteUser(userId: string): Promise<PromoteResponse> {
+  return request(`/api/v1/admin/users/${userId}/promote`, { method: "POST" }, true);
+}
+
 export { ApiError };

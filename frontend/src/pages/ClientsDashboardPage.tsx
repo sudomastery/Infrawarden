@@ -69,6 +69,11 @@ export default function ClientsDashboardPage() {
               superadmin
             </span>
           )}
+          {currentUser?.role === "admin" && (
+            <Link to="/admin/users" className="ml-4 text-sm text-primary-600 hover:underline">
+              Users
+            </Link>
+          )}
           <span className="ml-auto text-sm text-gray-500">{currentUser?.email}</span>
         </div>
       </header>
