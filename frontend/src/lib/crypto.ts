@@ -34,6 +34,12 @@ export async function generateKeypair(): Promise<Keypair> {
   return { publicKey: kp.publicKey, privateKey: kp.privateKey };
 }
 
+/** A fresh random symmetric data key for a new client vault. */
+export async function generateDataKey(): Promise<Uint8Array> {
+  const s = await ready();
+  return s.randombytes_buf(32);
+}
+
 export async function generateKdfSalt(): Promise<Uint8Array> {
   const s = await ready();
   return s.randombytes_buf(s.crypto_pwhash_SALTBYTES);
@@ -112,6 +118,21 @@ export async function aeadEncrypt(
 export async function aeadDecrypt(ciphertext: Uint8Array, nonce: Uint8Array, key: Uint8Array): Promise<Uint8Array> {
   const s = await ready();
   return s.crypto_aead_xchacha20poly1305_ietf_decrypt(null, ciphertext, null, nonce, key);
+}
+
+/** Convenience wrappers for resource/note content, which is always JSON before encryption. */
+export async function encryptJson(
+  value: unknown,
+  key: Uint8Array,
+): Promise<{ ciphertext: Uint8Array; nonce: Uint8Array }> {
+  const s = await ready();
+  return aeadEncrypt(s.from_string(JSON.stringify(value)), key);
+}
+
+export async function decryptJson<T>(ciphertext: Uint8Array, nonce: Uint8Array, key: Uint8Array): Promise<T> {
+  const s = await ready();
+  const plaintext = await aeadDecrypt(ciphertext, nonce, key);
+  return JSON.parse(s.to_string(plaintext)) as T;
 }
 
 export async function toBase64(bytes: Uint8Array): Promise<string> {

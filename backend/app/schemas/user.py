@@ -6,10 +6,14 @@ from app.models.user import UserRole, UserStatus
 
 
 class UserPublic(BaseModel):
-    """Safe-to-list fields for the sharing picker - never wrapped key material."""
+    """Safe-to-list fields for the sharing picker - never wrapped key material.
+    role IS included (not sensitive) - a client-creating browser needs it to know
+    which public keys must also receive a grant at creation time (every current
+    superadmin), per the superadmin access model."""
 
     id: uuid.UUID
     email: str
+    role: UserRole
     public_key: str  # base64
 
 

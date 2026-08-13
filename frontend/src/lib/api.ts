@@ -90,4 +90,143 @@ export async function getMe(): Promise<UserMeResponse> {
   return request("/api/v1/users/me", {}, true);
 }
 
+export interface UserPublicResponse {
+  id: string;
+  email: string;
+  role: "admin" | "user";
+  public_key: string;
+}
+
+export async function listUsers(): Promise<UserPublicResponse[]> {
+  return request("/api/v1/users", {}, true);
+}
+
+export interface ClientGrantIn {
+  user_id: string;
+  wrapped_data_key: string;
+}
+
+export interface ClientResponse {
+  id: string;
+  name: string;
+  description: string | null;
+  created_by_user_id: string;
+  wrapped_data_key: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function createClient(
+  name: string,
+  description: string | null,
+  grants: ClientGrantIn[],
+): Promise<ClientResponse> {
+  return request("/api/v1/clients", { method: "POST", body: JSON.stringify({ name, description, grants }) }, true);
+}
+
+export async function listClients(): Promise<ClientResponse[]> {
+  return request("/api/v1/clients", {}, true);
+}
+
+export async function getClient(clientId: string): Promise<ClientResponse> {
+  return request(`/api/v1/clients/${clientId}`, {}, true);
+}
+
+export type ResourceType = "host" | "vm" | "storage" | "network_device";
+
+export interface ResourceVersionResponse {
+  id: string;
+  changed_by_user_id: string;
+  ciphertext: string;
+  nonce: string;
+  created_at: string;
+}
+
+export interface ResourceResponse {
+  id: string;
+  client_id: string;
+  resource_type: ResourceType;
+  created_by_user_id: string;
+  status: "active" | "pending_delete";
+  latest_version_id: string;
+  current_version: ResourceVersionResponse;
+  has_pending_change: boolean;
+  hidden: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function createResource(
+  clientId: string,
+  resourceType: ResourceType,
+  ciphertext: string,
+  nonce: string,
+): Promise<ResourceResponse> {
+  return request(
+    `/api/v1/clients/${clientId}/resources`,
+    { method: "POST", body: JSON.stringify({ resource_type: resourceType, ciphertext, nonce }) },
+    true,
+  );
+}
+
+export async function listResources(clientId: string): Promise<ResourceResponse[]> {
+  return request(`/api/v1/clients/${clientId}/resources`, {}, true);
+}
+
+export async function getResource(resourceId: string): Promise<ResourceResponse> {
+  return request(`/api/v1/resources/${resourceId}`, {}, true);
+}
+
+export async function createResourceVersion(
+  resourceId: string,
+  ciphertext: string,
+  nonce: string,
+): Promise<ResourceResponse> {
+  return request(`/api/v1/resources/${resourceId}/versions`, { method: "POST", body: JSON.stringify({ ciphertext, nonce }) }, true);
+}
+
+export async function listResourceVersions(resourceId: string): Promise<ResourceVersionResponse[]> {
+  return request(`/api/v1/resources/${resourceId}/versions`, {}, true);
+}
+
+export async function acceptResourceChange(resourceId: string): Promise<void> {
+  await request(`/api/v1/resources/${resourceId}/accept`, { method: "POST" }, true);
+}
+
+export async function ignoreResourceChange(resourceId: string): Promise<void> {
+  await request(`/api/v1/resources/${resourceId}/ignore`, { method: "POST" }, true);
+}
+
+export async function deleteResource(resourceId: string): Promise<void> {
+  await request(`/api/v1/resources/${resourceId}`, { method: "DELETE" }, true);
+}
+
+export async function hideResource(resourceId: string): Promise<void> {
+  await request(`/api/v1/resources/${resourceId}/hide`, { method: "POST" }, true);
+}
+
+export async function unhideResource(resourceId: string): Promise<void> {
+  await request(`/api/v1/resources/${resourceId}/unhide`, { method: "POST" }, true);
+}
+
+export interface ResourceNoteResponse {
+  id: string;
+  author_user_id: string;
+  ciphertext: string;
+  nonce: string;
+  created_at: string;
+}
+
+export async function createResourceNote(
+  resourceId: string,
+  ciphertext: string,
+  nonce: string,
+): Promise<ResourceNoteResponse> {
+  return request(`/api/v1/resources/${resourceId}/notes`, { method: "POST", body: JSON.stringify({ ciphertext, nonce }) }, true);
+}
+
+export async function listResourceNotes(resourceId: string): Promise<ResourceNoteResponse[]> {
+  return request(`/api/v1/resources/${resourceId}/notes`, {}, true);
+}
+
 export { ApiError };

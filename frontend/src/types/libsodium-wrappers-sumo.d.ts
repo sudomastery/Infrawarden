@@ -52,6 +52,7 @@ declare module "libsodium-wrappers-sumo" {
     randombytes_buf(length: number): Uint8Array;
 
     from_string(str: string): Uint8Array;
+    to_string(bytes: Uint8Array): string;
     to_hex(bytes: Uint8Array): string;
 
     base64_variants: { ORIGINAL: number };

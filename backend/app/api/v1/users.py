@@ -32,4 +32,4 @@ async def list_users(
     db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)
 ) -> list[UserPublic]:
     users = await db.scalars(select(User))
-    return [UserPublic(id=u.id, email=u.email, public_key=b64encode(u.public_key)) for u in users]
+    return [UserPublic(id=u.id, email=u.email, role=u.role, public_key=b64encode(u.public_key)) for u in users]
