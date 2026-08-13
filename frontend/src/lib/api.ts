@@ -307,4 +307,29 @@ export async function revokeToken(clientId: string, tokenId: string): Promise<vo
   await request(`/api/v1/clients/${clientId}/tokens/${tokenId}`, { method: "DELETE" }, true);
 }
 
+export type TimelineEntrySource = "manual" | "email" | "future";
+
+export interface TimelineEntryResponse {
+  id: string;
+  client_id: string;
+  resource_id: string | null;
+  source: TimelineEntrySource;
+  ciphertext: string;
+  nonce: string;
+  created_by_user_id: string | null;
+  created_at: string;
+}
+
+export async function createTimelineEntry(
+  clientId: string,
+  ciphertext: string,
+  nonce: string,
+): Promise<TimelineEntryResponse> {
+  return request(`/api/v1/clients/${clientId}/timeline`, { method: "POST", body: JSON.stringify({ ciphertext, nonce }) }, true);
+}
+
+export async function listTimelineEntries(clientId: string): Promise<TimelineEntryResponse[]> {
+  return request(`/api/v1/clients/${clientId}/timeline`, {}, true);
+}
+
 export { ApiError };

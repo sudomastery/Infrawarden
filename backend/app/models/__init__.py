@@ -5,6 +5,7 @@ from app.models.api_token import ApiToken, TokenScopeType
 from app.models.api_token_resource_scope import ApiTokenResourceScope
 from app.models.client import Client
 from app.models.client_access_grant import ClientAccessGrant
+from app.models.client_timeline_entry import ClientTimelineEntry, TimelineEntrySource
 from app.models.invite import Invite
 from app.models.resource import Resource, ResourceStatus, ResourceType
 from app.models.resource_note import ResourceNote
@@ -28,4 +29,6 @@ __all__ = [
     "ApiToken",
     "TokenScopeType",
     "ApiTokenResourceScope",
+    "ClientTimelineEntry",
+    "TimelineEntrySource",
 ]

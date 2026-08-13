@@ -88,7 +88,10 @@ export default function ClientDetailPage() {
             &larr; Clients
           </Link>
           <span className="ml-2 text-base font-medium text-gray-900">{clientName ?? "Loading..."}</span>
-          <Link to={`/clients/${clientId}/tokens`} className="ml-auto text-sm text-primary-600 hover:underline">
+          <Link to={`/clients/${clientId}/timeline`} className="ml-auto text-sm text-primary-600 hover:underline">
+            Timeline
+          </Link>
+          <Link to={`/clients/${clientId}/tokens`} className="text-sm text-primary-600 hover:underline">
             API Tokens
           </Link>
           <Link to={`/clients/${clientId}/access`} className="text-sm text-primary-600 hover:underline">
