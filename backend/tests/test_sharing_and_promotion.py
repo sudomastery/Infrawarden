@@ -201,3 +201,97 @@ async def test_promote_and_reconcile(client):
         f"/api/v1/clients/{new_client.json()['id']}", headers=_auth(future_admin["access_token"])
     )
     assert immediate_access.status_code == 200
+
+
+async def test_revoke_then_regrant_same_user_does_not_crash(client):
+    """share_client_access unconditionally inserts a ResourceUserState row per
+    active resource for the new grantee; if revoke doesn't clean those up, a
+    later re-grant to the same (now-returning) user collides on the
+    (resource_id, user_id) primary key."""
+    admin_token = await _login(client, ADMIN_EMAIL, ADMIN_PASSWORD)
+    admin_id = (await client.get("/api/v1/users/me", headers=_auth(admin_token))).json()["id"]
+    owner = await _signup(client, "owner4@infrawarden-test.example.com")
+    colleague = await _signup(client, "colleague4@infrawarden-test.example.com")
+
+    client_resp = await client.post(
+        "/api/v1/clients",
+        json={
+            "name": "Revoke Regrant Co",
+            "grants": [
+                {"user_id": owner["user_id"], "wrapped_data_key": _b64(b"owner-key")},
+                {"user_id": admin_id, "wrapped_data_key": _b64(b"admin-key")},
+            ],
+        },
+        headers=_auth(owner["access_token"]),
+    )
+    client_id = client_resp.json()["id"]
+
+    await client.post(
+        f"/api/v1/clients/{client_id}/resources",
+        json={"resource_type": "host", "ciphertext": _b64(b"c"), "nonce": _b64(b"n" * 24)},
+        headers=_auth(owner["access_token"]),
+    )
+
+    share1 = await client.post(
+        f"/api/v1/clients/{client_id}/access",
+        json={"user_id": colleague["user_id"], "wrapped_data_key": _b64(b"colleague-key-1")},
+        headers=_auth(owner["access_token"]),
+    )
+    assert share1.status_code == 200
+
+    revoke = await client.delete(
+        f"/api/v1/clients/{client_id}/access/{colleague['user_id']}", headers=_auth(owner["access_token"])
+    )
+    assert revoke.status_code == 204
+
+    share2 = await client.post(
+        f"/api/v1/clients/{client_id}/access",
+        json={"user_id": colleague["user_id"], "wrapped_data_key": _b64(b"colleague-key-2")},
+        headers=_auth(owner["access_token"]),
+    )
+    assert share2.status_code == 200, share2.text
+
+    regained = await client.get(f"/api/v1/clients/{client_id}", headers=_auth(colleague["access_token"]))
+    assert regained.status_code == 200
+    assert regained.json()["wrapped_data_key"] == _b64(b"colleague-key-2")
+
+
+async def test_only_owner_or_admin_can_revoke_someone_elses_access(client):
+    admin_token = await _login(client, ADMIN_EMAIL, ADMIN_PASSWORD)
+    admin_id = (await client.get("/api/v1/users/me", headers=_auth(admin_token))).json()["id"]
+    owner = await _signup(client, "owner5@infrawarden-test.example.com")
+    colleague = await _signup(client, "colleague5@infrawarden-test.example.com")
+
+    client_resp = await client.post(
+        "/api/v1/clients",
+        json={
+            "name": "Ownership Co",
+            "grants": [
+                {"user_id": owner["user_id"], "wrapped_data_key": _b64(b"owner-key")},
+                {"user_id": admin_id, "wrapped_data_key": _b64(b"admin-key")},
+            ],
+        },
+        headers=_auth(owner["access_token"]),
+    )
+    client_id = client_resp.json()["id"]
+
+    share = await client.post(
+        f"/api/v1/clients/{client_id}/access",
+        json={"user_id": colleague["user_id"], "wrapped_data_key": _b64(b"colleague-key")},
+        headers=_auth(owner["access_token"]),
+    )
+    assert share.status_code == 200
+
+    # The colleague (not the owner, not a superadmin) cannot revoke the owner's
+    # own access - only self-revocation and owner/superadmin-initiated revokes
+    # of OTHERS are allowed.
+    denied = await client.delete(
+        f"/api/v1/clients/{client_id}/access/{owner['user_id']}", headers=_auth(colleague["access_token"])
+    )
+    assert denied.status_code == 403
+
+    # But the colleague CAN revoke their own access ("leave").
+    self_revoke = await client.delete(
+        f"/api/v1/clients/{client_id}/access/{colleague['user_id']}", headers=_auth(colleague["access_token"])
+    )
+    assert self_revoke.status_code == 204

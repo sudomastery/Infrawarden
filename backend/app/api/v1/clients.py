@@ -1,7 +1,7 @@
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.deps import get_client_grant, get_current_user
@@ -22,19 +22,25 @@ router = APIRouter(prefix="/clients", tags=["clients"])
 async def create_client(
     body: ClientCreate, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)
 ) -> ClientDetail:
+    if len(body.grants) != len({g.user_id for g in body.grants}):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Duplicate user_id in grants")
+
     grant_user_ids = {g.user_id for g in body.grants}
     if current_user.id not in grant_user_ids:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Must include a grant for yourself")
 
-    other_ids = grant_user_ids - {current_user.id}
-    if other_ids:
-        admins = await db.scalars(select(User).where(User.id.in_(other_ids), User.role == UserRole.admin))
-        admin_ids = {u.id for u in admins}
-        if admin_ids != other_ids:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Only the creator and current superadmins may receive a grant at creation time",
-            )
+    # Must be EXACTLY the creator plus every current superadmin - not just "no
+    # extra non-admins". A grant set that's missing a superadmin would silently
+    # violate the "superadmins always have access to every client" guarantee,
+    # with no later mechanism to detect or repair it (promotion reconciliation
+    # only fires for users being newly promoted, not for admins omitted here).
+    current_admin_ids = {u.id for u in await db.scalars(select(User).where(User.role == UserRole.admin))}
+    required_ids = current_admin_ids | {current_user.id}
+    if grant_user_ids != required_ids:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="grants must include yourself and every current superadmin, and no one else",
+        )
 
     client = Client(name=body.name, description=body.description, created_by_user_id=current_user.id)
     db.add(client)
@@ -147,12 +153,27 @@ async def update_client(
 async def delete_client(
     client_id: uuid.UUID, db: AsyncSession = Depends(get_db), current_user: User = Depends(get_current_user)
 ) -> None:
+    """Only ever deletes a client that has never had a resource created under it.
+    Resources cascade-delete with the client at the DB level (see the Resource
+    model), but resource_versions/resource_notes are supposed to be permanent -
+    never truly destroyed even when a resource is 'deleted' (see
+    docs/ARCHITECTURE.md's deletion model) - so a client-level hard delete must
+    never be allowed to take that history down with it. Delete/archive every
+    resource individually first if the client genuinely needs to go away."""
     await get_client_grant(client_id, current_user, db)
     client = await db.get(Client, client_id)
     if client is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Client not found")
     if client.created_by_user_id != current_user.id and current_user.role != UserRole.admin:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only the client owner or a superadmin can delete it")
+
+    any_resource = await db.scalar(select(Resource.id).where(Resource.client_id == client_id).limit(1))
+    if any_resource is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This client still has resources (including deleted ones, which are kept for recovery) - it can't be deleted while any exist",
+        )
+
     await db.delete(client)
     await db.commit()
 
@@ -243,6 +264,19 @@ async def revoke_client_access(
             detail="Cannot revoke a superadmin's access - it would break the guarantee that superadmins always have access to every client",
         )
 
+    # Anyone can revoke their own access ("leave"). Revoking someone ELSE's
+    # access is restricted to the client owner or a superadmin - otherwise any
+    # colleague who was merely shared access could revoke the owner themselves.
+    if user_id != current_user.id:
+        client = await db.get(Client, client_id)
+        if client is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Client not found")
+        if client.created_by_user_id != current_user.id and current_user.role != UserRole.admin:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only the client owner or a superadmin can revoke someone else's access",
+            )
+
     grant = await db.scalar(
         select(ClientAccessGrant).where(
             ClientAccessGrant.client_id == client_id, ClientAccessGrant.user_id == user_id
@@ -251,4 +285,16 @@ async def revoke_client_access(
     if grant is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Grant not found")
     await db.delete(grant)
+
+    # Clean up this user's per-resource state too - otherwise re-sharing with
+    # them later collides on the (resource_id, user_id) primary key. They start
+    # fresh in sync at the current head if/when they're re-granted, which is the
+    # right semantics anyway (not resuming a potentially very stale pointer).
+    await db.execute(
+        delete(ResourceUserState).where(
+            ResourceUserState.user_id == user_id,
+            ResourceUserState.resource_id.in_(select(Resource.id).where(Resource.client_id == client_id)),
+        )
+    )
+
     await db.commit()

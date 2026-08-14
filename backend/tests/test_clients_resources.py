@@ -353,3 +353,57 @@ async def test_update_client_name_and_description(client):
         f"/api/v1/clients/{client_id}", json={"name": "Hijacked"}, headers=_auth(stranger["access_token"])
     )
     assert denied.status_code == 404
+
+
+async def test_create_client_rejects_grants_missing_a_current_superadmin(client):
+    """A grant set that silently omits a superadmin would leave that superadmin
+    permanently unable to decrypt the client, with no later mechanism to detect
+    or repair it - must be rejected outright, not just checked for extra
+    non-admin recipients."""
+    owner = await _signup(client, "owner7@infrawarden-test.example.com")
+    resp = await client.post(
+        "/api/v1/clients",
+        json={"name": "Missing Admin Co", "grants": [{"user_id": owner["user_id"], "wrapped_data_key": _b64(b"k")}]},
+        headers=_auth(owner["access_token"]),
+    )
+    assert resp.status_code == 400
+
+
+async def test_create_client_rejects_duplicate_grant_user_ids(client):
+    owner = await _signup(client, "owner8@infrawarden-test.example.com")
+    admin_token = await _login(client, ADMIN_EMAIL, ADMIN_PASSWORD)
+    admin_id = (await client.get("/api/v1/users/me", headers=_auth(admin_token))).json()["id"]
+    resp = await client.post(
+        "/api/v1/clients",
+        json={
+            "name": "Dup Co",
+            "grants": [
+                {"user_id": owner["user_id"], "wrapped_data_key": _b64(b"k1")},
+                {"user_id": admin_id, "wrapped_data_key": _b64(b"k2")},
+                {"user_id": admin_id, "wrapped_data_key": _b64(b"k3")},
+            ],
+        },
+        headers=_auth(owner["access_token"]),
+    )
+    assert resp.status_code == 400
+
+
+async def test_delete_client_blocked_while_resources_exist(client):
+    admin_token = await _login(client, ADMIN_EMAIL, ADMIN_PASSWORD)
+    admin_id = (await client.get("/api/v1/users/me", headers=_auth(admin_token))).json()["id"]
+    owner = await _signup(client, "owner9@infrawarden-test.example.com")
+    client_id = await _create_client(client, owner["access_token"], owner["user_id"], admin_id)
+
+    await client.post(
+        f"/api/v1/clients/{client_id}/resources",
+        json={"resource_type": "host", "ciphertext": _b64(b"c"), "nonce": _b64(b"n" * 24)},
+        headers=_auth(owner["access_token"]),
+    )
+
+    blocked = await client.delete(f"/api/v1/clients/{client_id}", headers=_auth(owner["access_token"]))
+    assert blocked.status_code == 409
+
+    # An empty client (never had a resource) can still be deleted.
+    empty_client_id = await _create_client(client, owner["access_token"], owner["user_id"], admin_id)
+    allowed = await client.delete(f"/api/v1/clients/{empty_client_id}", headers=_auth(owner["access_token"]))
+    assert allowed.status_code == 204
