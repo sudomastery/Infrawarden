@@ -295,3 +295,47 @@ async def test_only_owner_or_admin_can_revoke_someone_elses_access(client):
         f"/api/v1/clients/{client_id}/access/{colleague['user_id']}", headers=_auth(colleague["access_token"])
     )
     assert self_revoke.status_code == 204
+
+
+async def test_concurrent_share_race_returns_clean_status_not_500(client):
+    """Two concurrent shares to the same (client_id, user_id) both pass the
+    sequential 'existing is None' pre-check before either commits - the unique
+    constraint on client_access_grants (via the global IntegrityError handler)
+    is the real guard. Exercises that race for real via asyncio.gather."""
+    import asyncio
+
+    admin_token = await _login(client, ADMIN_EMAIL, ADMIN_PASSWORD)
+    admin_id = (await client.get("/api/v1/users/me", headers=_auth(admin_token))).json()["id"]
+    owner = await _signup(client, "owner6@infrawarden-test.example.com")
+    colleague = await _signup(client, "colleague6@infrawarden-test.example.com")
+
+    client_resp = await client.post(
+        "/api/v1/clients",
+        json={
+            "name": "Race Co",
+            "grants": [
+                {"user_id": owner["user_id"], "wrapped_data_key": _b64(b"owner-key")},
+                {"user_id": admin_id, "wrapped_data_key": _b64(b"admin-key")},
+            ],
+        },
+        headers=_auth(owner["access_token"]),
+    )
+    client_id = client_resp.json()["id"]
+
+    results = await asyncio.gather(
+        client.post(
+            f"/api/v1/clients/{client_id}/access",
+            json={"user_id": colleague["user_id"], "wrapped_data_key": _b64(b"race-key-1")},
+            headers=_auth(owner["access_token"]),
+        ),
+        client.post(
+            f"/api/v1/clients/{client_id}/access",
+            json={"user_id": colleague["user_id"], "wrapped_data_key": _b64(b"race-key-2")},
+            headers=_auth(owner["access_token"]),
+        ),
+        return_exceptions=True,
+    )
+    statuses = sorted(r.status_code for r in results if not isinstance(r, Exception))
+    assert 500 not in statuses
+    assert statuses.count(200) == 1
+    assert statuses[1] == 409

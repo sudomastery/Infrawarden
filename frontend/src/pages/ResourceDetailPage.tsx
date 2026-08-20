@@ -2,9 +2,11 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import {
   acceptResourceChange,
+  ApiError,
   createResourceNote,
   createResourceVersion,
   deleteResource,
+  getClient,
   getResource,
   hideResource,
   ignoreResourceChange,
@@ -15,7 +17,7 @@ import {
   toUserMessage,
   unhideResource,
 } from "../lib/api";
-import { decryptJson, encryptJson, fromBase64, toBase64 } from "../lib/crypto";
+import { decryptJson, encryptJson, fromBase64, toBase64, unsealWithKeypair } from "../lib/crypto";
 import { diffResourceValues } from "../lib/diff";
 import { fieldLabel, isSecretField, RESOURCE_TYPE_LABELS, ResourceFieldValues } from "../lib/resourceTypes";
 import { useVaultStore } from "../store/vaultStore";
@@ -29,8 +31,9 @@ export default function ResourceDetailPage() {
   const { clientId, resourceId } = useParams<{ clientId: string; resourceId: string }>();
   const navigate = useNavigate();
   const currentUser = useVaultStore((s) => s.currentUser);
+  const privateKey = useVaultStore((s) => s.privateKey);
   const dataKeysByClientId = useVaultStore((s) => s.dataKeysByClientId);
-  const dataKey = clientId ? dataKeysByClientId[clientId] : undefined;
+  const setClientDataKey = useVaultStore((s) => s.setClientDataKey);
 
   const [resource, setResource] = useState<ResourceResponse | null>(null);
   const [values, setValues] = useState<ResourceFieldValues | null>(null);
@@ -43,8 +46,21 @@ export default function ResourceDetailPage() {
   const [revealedFields, setRevealedFields] = useState<Set<string>>(new Set());
   const [confirmingDelete, setConfirmingDelete] = useState(false);
 
+  async function ensureDataKey(): Promise<Uint8Array> {
+    if (!clientId || !currentUser || !privateKey) throw new Error("Vault is locked");
+    const cached = dataKeysByClientId[clientId];
+    if (cached) return cached;
+    const clientDetail = await getClient(clientId);
+    const publicKey = await fromBase64(currentUser.publicKey);
+    const wrapped = await fromBase64(clientDetail.wrapped_data_key);
+    const key = await unsealWithKeypair(wrapped, publicKey, privateKey);
+    setClientDataKey(clientId, key);
+    return key;
+  }
+
   async function load() {
-    if (!resourceId || !dataKey) return;
+    if (!resourceId) return;
+    const dataKey = await ensureDataKey();
     const r = await getResource(resourceId);
     setResource(r);
 
@@ -90,7 +106,7 @@ export default function ResourceDetailPage() {
   useEffect(() => {
     load().catch((err) => setError(toUserMessage(err, "Could not load resource")));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [resourceId, dataKey]);
+  }, [resourceId, clientId, privateKey]);
 
   function toggleReveal(key: string) {
     setRevealedFields((prev) => {
@@ -114,7 +130,8 @@ export default function ResourceDetailPage() {
   }
 
   async function handleSaveEdit(newValues: ResourceFieldValues) {
-    if (!resourceId || !dataKey) return;
+    if (!resourceId) return;
+    const dataKey = await ensureDataKey();
     const { ciphertext, nonce } = await encryptJson(newValues, dataKey);
     await createResourceVersion(resourceId, await toBase64(ciphertext), await toBase64(nonce));
     setEditing(false);
@@ -122,7 +139,8 @@ export default function ResourceDetailPage() {
   }
 
   async function handleAddNote(text: string) {
-    if (!resourceId || !dataKey) return;
+    if (!resourceId) return;
+    const dataKey = await ensureDataKey();
     const { ciphertext, nonce } = await encryptJson(text, dataKey);
     await createResourceNote(resourceId, await toBase64(ciphertext), await toBase64(nonce));
     await load();
@@ -134,13 +152,21 @@ export default function ResourceDetailPage() {
     try {
       await deleteResource(resourceId);
       navigate(`/clients/${clientId}`);
-    } catch {
-      // not the owner/admin - fall back to hiding it from just this view
+    } catch (err) {
+      if (!(err instanceof ApiError) || err.status !== 403) {
+        // A genuine failure (500, network error, etc.) - surface it rather than
+        // silently treating it as "not the owner" and falling back to hide,
+        // which would report success for a delete that never actually happened.
+        setError(toUserMessage(err, "Could not delete this resource"));
+        setConfirmingDelete(false);
+        return;
+      }
+      // Not the owner/admin (403) - fall back to hiding it from just this view.
       try {
         await hideResource(resourceId);
         navigate(`/clients/${clientId}`);
-      } catch (err) {
-        setError(toUserMessage(err, "Could not remove this resource"));
+      } catch (hideErr) {
+        setError(toUserMessage(hideErr, "Could not remove this resource"));
         setConfirmingDelete(false);
       }
     }

@@ -13,6 +13,7 @@ from app.core.security import (
     create_refresh_token,
     decode_token,
     dummy_kdf_salt_for_unknown_email,
+    hash_auth_hash,
     verify_auth_hash,
 )
 from app.db.session import get_db
@@ -20,6 +21,11 @@ from app.models.user import User, UserStatus
 from app.schemas.auth import AccessTokenResponse, LoginRequest, PreloginRequest, PreloginResponse, RefreshRequest, TokenPair
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+# A precomputed argon2 hash of a fixed dummy value, used as the comparison target
+# for unknown emails at login - see login() below. Computed once at import time
+# (not per-request) so it doesn't itself introduce timing variance.
+_DUMMY_AUTH_HASH = hash_auth_hash("infrawarden-dummy-auth-hash-for-timing-safety")
 
 
 @router.post("/prelogin", response_model=PreloginResponse)
@@ -47,9 +53,15 @@ async def login(request: Request, body: LoginRequest, db: AsyncSession = Depends
     user = await db.scalar(select(User).where(User.email == body.email))
     invalid = HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
 
-    if user is None or user.status != UserStatus.active:
-        raise invalid
-    if not verify_auth_hash(body.auth_hash, user.auth_hash):
+    # verify_auth_hash (a real argon2 verify) always runs, even for an unknown
+    # email - otherwise this endpoint is a timing oracle for account enumeration,
+    # contradicting the whole point of /prelogin's anti-enumeration design:
+    # unknown emails would return near-instantly while known emails take the
+    # full argon2id verify time, letting an attacker distinguish them by latency.
+    stored_hash = user.auth_hash if user is not None else _DUMMY_AUTH_HASH
+    hash_valid = verify_auth_hash(body.auth_hash, stored_hash)
+
+    if user is None or user.status != UserStatus.active or not hash_valid:
         raise invalid
 
     return TokenPair(access_token=create_access_token(user.id), refresh_token=create_refresh_token(user.id))

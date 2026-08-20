@@ -35,6 +35,13 @@ async def create_invite(
     if existing_user is not None:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="A user with this email already exists")
 
+    now = datetime.now(timezone.utc)
+    existing_live_invite = await db.scalar(
+        select(Invite).where(Invite.email == body.email, Invite.accepted_at.is_(None), Invite.expires_at >= now)
+    )
+    if existing_live_invite is not None:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="An unexpired invite already exists for this email")
+
     token = generate_invite_token()
     invite = Invite(
         email=body.email,

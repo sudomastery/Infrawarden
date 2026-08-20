@@ -4,11 +4,12 @@ import uuid
 from datetime import datetime, timezone
 
 import nacl.exceptions
-from fastapi import APIRouter, Depends, Header, HTTPException, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.crypto import aead_decrypt, derive_token_wrap_key
+from app.core.limiter import limiter
 from app.core.security import hash_token_secret
 from app.db.session import get_db
 from app.models.api_token import ApiToken, TokenScopeType
@@ -43,8 +44,9 @@ def _parse_bearer(authorization: str | None) -> tuple[str, bytes]:
 
 
 @router.get("/doc", response_model=AgentDocResponse)
+@limiter.limit("30/minute")
 async def get_agent_doc(
-    authorization: str | None = Header(default=None), db: AsyncSession = Depends(get_db)
+    request: Request, authorization: str | None = Header(default=None), db: AsyncSession = Depends(get_db)
 ) -> AgentDocResponse:
     """The one endpoint an agent (via the MCP server) actually calls. No client id
     in the path or params - everything is derived from the token itself, so there
@@ -116,7 +118,10 @@ async def get_agent_doc(
         )
         notes = []
         for note, author_email in notes_rows.all():
-            text = json.loads(aead_decrypt(note.ciphertext, note.nonce, data_key))
+            try:
+                text = json.loads(aead_decrypt(note.ciphertext, note.nonce, data_key))
+            except nacl.exceptions.CryptoError:
+                raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Could not decrypt resource")
             notes.append(RenderNote(text=text, author_email=author_email, created_at=note.created_at))
 
         render_resources.append(RenderResource(resource_type=resource.resource_type, fields=fields, notes=notes))

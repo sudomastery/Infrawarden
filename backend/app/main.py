@@ -1,7 +1,11 @@
-from fastapi import FastAPI
+from binascii import Error as BinasciiError
+
+from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
+from sqlalchemy.exc import IntegrityError
 
 from app.api.v1 import admin, agent, auth, clients, invites, resources, timeline, tokens, users
 from app.core.config import settings
@@ -11,6 +15,24 @@ app = FastAPI(title="Infrawarden API")
 
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+
+@app.exception_handler(BinasciiError)
+async def binascii_error_handler(request: Request, exc: BinasciiError) -> JSONResponse:
+    return JSONResponse(status_code=status.HTTP_400_BAD_REQUEST, content={"detail": "Invalid base64 encoding"})
+
+
+@app.exception_handler(IntegrityError)
+async def integrity_error_handler(request: Request, exc: IntegrityError) -> JSONResponse:
+    # A safety net for races that slip past an endpoint's own pre-check (e.g. two
+    # concurrent requests both passing an "already exists" check before either
+    # commits) - translates a raw constraint violation into a clean 409 instead
+    # of an unstructured 500, without needing bespoke try/except at every
+    # insert site that has a uniqueness constraint.
+    return JSONResponse(
+        status_code=status.HTTP_409_CONFLICT,
+        content={"detail": "Conflict - this may already exist or reference something that no longer does"},
+    )
 
 app.add_middleware(
     CORSMiddleware,

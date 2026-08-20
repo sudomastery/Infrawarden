@@ -124,10 +124,6 @@ has their own `resource_user_state` row per resource tracking which version is *
   until the user chooses to reconcile them.
 - An API token renders whatever version its creator's pointer is on - "the agent sees my instance."
 
-See the plan file this was implemented from for the full data model and API surface at
-`~/.claude/plans/i-want-to-build-mutable-hammock.md` on the machine this was built on (not part of this
-repo).
-
 ## Superadmin access model
 
 The `admin` role is the platform's superadmin tier and needs **guaranteed** decrypt access to every

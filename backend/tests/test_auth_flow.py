@@ -106,6 +106,20 @@ async def test_login_wrong_password_rejected(client):
     assert r.status_code == 401
 
 
+async def test_login_unknown_email_still_runs_a_real_verify(client):
+    """Login must not short-circuit on an unknown email without running a real
+    argon2 verify - otherwise it's a timing oracle for account enumeration,
+    contradicting /prelogin's whole anti-enumeration design. This doesn't assert
+    on timing directly (too flaky in CI), just that the behavior is
+    request-shape-identical: same 401, same generic detail, for an email that
+    doesn't exist at all."""
+    r = await client.post(
+        "/api/v1/auth/login", json={"email": "nobody@nowhere-example.com", "auth_hash": "a" * 64}
+    )
+    assert r.status_code == 401
+    assert r.json()["detail"] == "Invalid email or password"
+
+
 async def _admin_access_token(client) -> str:
     import base64
 
@@ -166,3 +180,60 @@ async def test_non_admin_cannot_create_invite(client):
         headers={"Authorization": f"Bearer {user_token}"},
     )
     assert r.status_code == 403
+
+
+async def test_cannot_create_two_live_invites_for_same_email(client):
+    admin_token = await _admin_access_token(client)
+    headers = {"Authorization": f"Bearer {admin_token}"}
+
+    first = await client.post(
+        "/api/v1/invites", json={"email": "double-invite@infrawarden-test.example.com", "role": "user"}, headers=headers
+    )
+    assert first.status_code == 200
+
+    second = await client.post(
+        "/api/v1/invites", json={"email": "double-invite@infrawarden-test.example.com", "role": "user"}, headers=headers
+    )
+    assert second.status_code == 409
+
+
+async def test_malformed_base64_returns_400_not_500(client):
+    admin_token = await _admin_access_token(client)
+    invite_resp = await client.post(
+        "/api/v1/invites",
+        json={"email": "badb64@infrawarden-test.example.com", "role": "user"},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    payload = _derive_signup_payload("bad base64 password 2026")
+    payload["public_key"] = "not valid base64!!!"
+    r = await client.post(f"/api/v1/invites/{invite_resp.json()['token']}/accept", json=payload)
+    assert r.status_code == 400
+
+
+async def test_concurrent_invite_accept_race_returns_clean_status_not_500(client):
+    """Two concurrent accepts of the SAME invite token both pass the sequential
+    accepted_at/existing-user pre-checks before either commits - the unique
+    index on users.email (via the global IntegrityError handler) is the real
+    guard against a double-accept slipping through as two created users.
+    Exercises that race for real via asyncio.gather, not just the sequential
+    pre-check path."""
+    import asyncio
+
+    admin_token = await _admin_access_token(client)
+    invite_resp = await client.post(
+        "/api/v1/invites",
+        json={"email": "race@infrawarden-test.example.com", "role": "user"},
+        headers={"Authorization": f"Bearer {admin_token}"},
+    )
+    token = invite_resp.json()["token"]
+    payload = _derive_signup_payload("race password 2026")
+
+    results = await asyncio.gather(
+        client.post(f"/api/v1/invites/{token}/accept", json=payload),
+        client.post(f"/api/v1/invites/{token}/accept", json=payload),
+        return_exceptions=True,
+    )
+    statuses = sorted(r.status_code for r in results if not isinstance(r, Exception))
+    assert 500 not in statuses
+    assert statuses.count(200) == 1
+    assert statuses[1] in (404, 409)
